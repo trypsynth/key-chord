@@ -58,7 +58,7 @@ impl KeyChord {
 		self
 	}
 
-	/// Canonical spelling of a key name, so `"esc"`, `"Escape"` and `"ESC"` all compare equal
+	/// Canonical spelling of a key name, so `"esc"`, `"Escape"`, and `"ESC"` all compare equal,
 	/// and a config file edited by hand still matches.
 	#[must_use]
 	pub fn normalize_key_name(key: &str) -> String {
