@@ -43,6 +43,15 @@ They serialize as `Ctrl+` and `RawCtrl+`, and `conflicts_with` treats a `ctrl` c
 `raw_ctrl` chord on the same key as a collision, since they are the same keystroke everywhere
 except macOS.
 
+## The Windows key
+
+`win` is the Windows logo key, for system-wide hotkeys such as `Ctrl+Win+Up`. Add it with
+`with_win(true)`; it serializes as `Win+`.
+
+wx key events don't report the Win key, and Windows takes many Win combinations before a window
+ever sees them, so `matches` never fires for a `win` chord and `from_key_code` never produces one.
+Register it as a global hotkey instead.
+
 ## Key codes
 
 `from_key_code` and `matches` speak wxWidgets key codes. The values are plain integers and the
@@ -50,5 +59,5 @@ crate has no toolkit dependency, but the numbers themselves come from `wxKeyCode
 
 ## Features
 
-* `serde` — derives `Serialize` and `Deserialize` on `KeyChord`. `raw_ctrl` is `#[serde(default)]`,
-  so a config written before that field existed still loads.
+* `serde` — derives `Serialize` and `Deserialize` on `KeyChord`. `raw_ctrl` and `win` are
+  `#[serde(default)]`, so a config written before those fields existed still loads.

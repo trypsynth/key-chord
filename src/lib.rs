@@ -16,6 +16,10 @@
 /// needs `raw_ctrl` when it has to stay physical Control on a Mac, so [`new`](KeyChord::new)
 /// produces a `ctrl` chord and [`new_raw_ctrl`](KeyChord::new_raw_ctrl) is the exception you
 /// reach for deliberately.
+///
+/// `win` is the Windows logo key. It only makes sense for a system-wide hotkey: wx key events
+/// don't report it, and Windows keeps many Win combinations for itself before a window sees them,
+/// so [`matches`](KeyChord::matches) never fires for a `win` chord.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -25,6 +29,8 @@ pub struct KeyChord {
 	pub raw_ctrl: bool,
 	pub alt: bool,
 	pub shift: bool,
+	#[cfg_attr(feature = "serde", serde(default))]
+	pub win: bool,
 	pub key: String,
 }
 
@@ -34,7 +40,7 @@ impl KeyChord {
 	pub fn new(ctrl: bool, alt: bool, shift: bool, key: impl Into<String>) -> Self {
 		let key_str = key.into();
 		let normalized = Self::normalize_key_name(&key_str);
-		Self { ctrl, raw_ctrl: false, alt, shift, key: normalized }
+		Self { ctrl, raw_ctrl: false, alt, shift, win: false, key: normalized }
 	}
 
 	/// A chord on the physical Control key, which stays Control on macOS rather than becoming Cmd.
@@ -42,7 +48,14 @@ impl KeyChord {
 	pub fn new_raw_ctrl(raw_ctrl: bool, alt: bool, shift: bool, key: impl Into<String>) -> Self {
 		let key_str = key.into();
 		let normalized = Self::normalize_key_name(&key_str);
-		Self { ctrl: false, raw_ctrl, alt, shift, key: normalized }
+		Self { ctrl: false, raw_ctrl, alt, shift, win: false, key: normalized }
+	}
+
+	/// This chord with the Windows logo key added or removed.
+	#[must_use]
+	pub const fn with_win(mut self, win: bool) -> Self {
+		self.win = win;
+		self
 	}
 
 	/// Canonical spelling of a key name, so `"esc"`, `"Escape"` and `"ESC"` all compare equal
@@ -113,6 +126,9 @@ impl KeyChord {
 		if self.shift {
 			parts.push("Shift");
 		}
+		if self.win {
+			parts.push("Win");
+		}
 		parts.push(&self.key);
 		parts.join("+")
 	}
@@ -131,6 +147,7 @@ impl KeyChord {
 		let mut raw_ctrl = false;
 		let mut alt = false;
 		let mut shift = false;
+		let mut win = false;
 		let mut remaining = trimmed;
 		while let Some(plus_idx) = remaining.find('+') {
 			let prefix = &remaining[..plus_idx];
@@ -146,6 +163,9 @@ impl KeyChord {
 			} else if prefix.eq_ignore_ascii_case("shift") {
 				shift = true;
 				remaining = &remaining[plus_idx + 1..];
+			} else if prefix.eq_ignore_ascii_case("win") || prefix.eq_ignore_ascii_case("windows") {
+				win = true;
+				remaining = &remaining[plus_idx + 1..];
 			} else {
 				break;
 			}
@@ -155,13 +175,15 @@ impl KeyChord {
 			return None;
 		}
 		let normalized = Self::normalize_key_name(&key);
-		Some(Self { ctrl, raw_ctrl, alt, shift, key: normalized })
+		Some(Self { ctrl, raw_ctrl, alt, shift, win, key: normalized })
 	}
 
 	/// Builds a chord from a live key event.
 	///
 	/// Returns `None` for a key code with no name here, such as a bare modifier press. That is
 	/// what lets a capture field ignore the user reaching for Shift on the way to a chord.
+	///
+	/// The result never has `win` set, since wx key events don't carry it.
 	#[must_use]
 	pub fn from_key_code(key_code: i32, ctrl: bool, alt: bool, shift: bool) -> Option<Self> {
 		let named = |code: i32| char::from_u32(u32::try_from(code).ok()?).map(|c| c.to_string());
@@ -197,15 +219,20 @@ impl KeyChord {
 			96 | 192 => "`".to_string(),
 			_ => return None,
 		};
-		Some(Self { ctrl, raw_ctrl: false, alt, shift, key: key_name })
+		Some(Self { ctrl, raw_ctrl: false, alt, shift, win: false, key: key_name })
 	}
 
 	/// Whether a live key event is this chord.
 	///
 	/// Each key accepts both its ASCII code and its numpad or extended equivalent, so a binding
 	/// on `.` fires from the numpad decimal point too.
+	///
+	/// Always `false` for a `win` chord, which wx key events can't express.
 	#[must_use]
 	pub fn matches(&self, key_code: i32, ctrl: bool, alt: bool, shift: bool) -> bool {
+		if self.win {
+			return false;
+		}
 		let self_ctrl = self.ctrl || self.raw_ctrl;
 		if self_ctrl != ctrl || self.alt != alt || self.shift != shift {
 			return false;
@@ -281,6 +308,7 @@ impl KeyChord {
 		(self.ctrl || self.raw_ctrl) == (other.ctrl || other.raw_ctrl)
 			&& self.alt == other.alt
 			&& self.shift == other.shift
+			&& self.win == other.win
 			&& self.key == other.key
 	}
 }
@@ -364,6 +392,28 @@ mod tests {
 		// wx reports the physical Control key as `control_down` on every platform.
 		let chord = KeyChord::new_raw_ctrl(true, false, false, "Space");
 		assert!(chord.matches(32, true, false, false));
+	}
+
+	#[test]
+	fn win_survives_a_round_trip() {
+		let chord = KeyChord::new(true, false, false, "Up").with_win(true);
+		assert_eq!(chord.to_shortcut_string(), "Ctrl+Win+Up");
+		assert_eq!(KeyChord::parse(&chord.to_shortcut_string()), Some(chord.clone()));
+		assert_eq!(KeyChord::parse("windows+ctrl+up"), Some(chord));
+	}
+
+	#[test]
+	fn win_is_part_of_the_keystroke() {
+		let plain = KeyChord::new(true, false, false, "Up");
+		let with_win = plain.clone().with_win(true);
+		assert!(!plain.conflicts_with(&with_win));
+		assert!(with_win.conflicts_with(&with_win.clone()));
+	}
+
+	#[test]
+	fn a_win_chord_never_matches_a_key_event() {
+		let chord = KeyChord::new(true, false, false, "Up").with_win(true);
+		assert!(!chord.matches(315, true, false, false));
 	}
 
 	#[test]
