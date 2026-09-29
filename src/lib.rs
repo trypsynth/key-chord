@@ -7,6 +7,43 @@
 
 #![warn(clippy::all, clippy::cargo, clippy::nursery, clippy::pedantic)]
 
+/// The key codes wx reports, from its `WXK_*` constants.
+const WXK_F1: i32 = 340;
+const WXK_F24: i32 = 363;
+const WXK_NUMPAD0: i32 = 324;
+const WXK_NUMPAD9: i32 = 333;
+
+/// Each named key with the wx key codes that produce it: its own, then its numpad equivalent,
+/// which is what the numpad sends with Num Lock off, and for punctuation the Windows virtual key
+/// code some keyboard layouts report.
+const NAMED_KEYS: &[(&str, &[i32])] = &[
+	("Enter", &[13, 370]),
+	("Tab", &[9, 369]),
+	("Space", &[32, 368]),
+	("Backspace", &[8]),
+	("Delete", &[127, 385]),
+	("Escape", &[27]),
+	("Home", &[313, 375]),
+	("End", &[312, 382]),
+	("PageUp", &[366, 380]),
+	("PageDown", &[367, 381]),
+	("Left", &[314, 376]),
+	("Up", &[315, 377]),
+	("Right", &[316, 378]),
+	("Down", &[317, 379]),
+	(",", &[44, 188]),
+	(".", &[46, 190, 391]),
+	("/", &[47, 191, 392]),
+	("[", &[91, 219]),
+	("]", &[93, 221]),
+	("\\", &[92, 220]),
+	("-", &[45, 189, 390]),
+	("=", &[61, 187, 386]),
+	(";", &[59, 186]),
+	("'", &[39, 222]),
+	("`", &[96, 192]),
+];
+
 /// A modifier combination plus one key.
 ///
 /// `ctrl` and `raw_ctrl` are separate because macOS has two keys where Windows and Linux have
@@ -214,38 +251,17 @@ impl KeyChord {
 	/// The result never has `win` set, since wx key events don't carry it.
 	#[must_use]
 	pub fn from_key_code(key_code: i32, ctrl: bool, alt: bool, shift: bool) -> Option<Self> {
-		let named = |code: i32| char::from_u32(u32::try_from(code).ok()?).map(|c| c.to_string());
-		let key_name = match key_code {
-			13 | 370 => "Enter".to_string(),
-			9 => "Tab".to_string(),
-			32 => "Space".to_string(),
-			8 => "Backspace".to_string(),
-			127 | 308 | 386 => "Delete".to_string(),
-			27 => "Escape".to_string(),
-			313 | 377 => "Home".to_string(),
-			312 | 379 => "End".to_string(),
-			366 | 376 => "PageUp".to_string(),
-			367 | 381 => "PageDown".to_string(),
-			314 | 378 => "Left".to_string(),
-			316 | 380 => "Right".to_string(),
-			315 | 382 => "Up".to_string(),
-			317 | 383 => "Down".to_string(),
-			340..=363 => format!("F{}", key_code - 340 + 1),
-			65..=90 | 48..=57 => named(key_code)?,
-			97..=122 => named(key_code - 32)?,
-			324..=333 => named(key_code - 324 + 48)?,
-			44 | 188 => ",".to_string(),
-			46 | 190 | 387 => ".".to_string(),
-			47 | 191 | 388 => "/".to_string(),
-			91 | 219 => "[".to_string(),
-			93 | 221 => "]".to_string(),
-			92 | 220 => "\\".to_string(),
-			45 | 189 | 390 => "-".to_string(),
-			61 | 187 => "=".to_string(),
-			59 | 186 => ";".to_string(),
-			39 | 222 => "'".to_string(),
-			96 | 192 => "`".to_string(),
-			_ => return None,
+		let key_name = if let Some((name, _)) = NAMED_KEYS.iter().find(|(_, codes)| codes.contains(&key_code)) {
+			(*name).to_string()
+		} else {
+			let named = |code: i32| char::from_u32(u32::try_from(code).ok()?).map(|c| c.to_string());
+			match key_code {
+				WXK_F1..=WXK_F24 => format!("F{}", key_code - WXK_F1 + 1),
+				65..=90 | 48..=57 => named(key_code)?,
+				97..=122 => named(key_code - 32)?,
+				WXK_NUMPAD0..=WXK_NUMPAD9 => named(key_code - WXK_NUMPAD0 + 48)?,
+				_ => return None,
+			}
 		};
 		Some(Self { ctrl, raw_ctrl: false, alt, shift, win: false, key: key_name })
 	}
@@ -266,64 +282,26 @@ impl KeyChord {
 			return false;
 		}
 		let key_str = self.key.as_str();
-		if key_str.eq_ignore_ascii_case("Enter") {
-			key_code == 13 || key_code == 370
-		} else if key_str.eq_ignore_ascii_case("Tab") {
-			key_code == 9
-		} else if key_str.eq_ignore_ascii_case("Space") {
-			key_code == 32
-		} else if key_str.eq_ignore_ascii_case("Backspace") {
-			key_code == 8
-		} else if key_str.eq_ignore_ascii_case("Delete") {
-			key_code == 127 || key_code == 308 || key_code == 386
-		} else if key_str.eq_ignore_ascii_case("Escape") {
-			key_code == 27
-		} else if key_str.eq_ignore_ascii_case("Home") {
-			key_code == 313 || key_code == 377
-		} else if key_str.eq_ignore_ascii_case("End") {
-			key_code == 312 || key_code == 379
-		} else if key_str.eq_ignore_ascii_case("PageUp") {
-			key_code == 366 || key_code == 376
-		} else if key_str.eq_ignore_ascii_case("PageDown") {
-			key_code == 367 || key_code == 381
-		} else if key_str.eq_ignore_ascii_case("Left") {
-			key_code == 314 || key_code == 378
-		} else if key_str.eq_ignore_ascii_case("Right") {
-			key_code == 316 || key_code == 380
-		} else if key_str.eq_ignore_ascii_case("Up") {
-			key_code == 315 || key_code == 382
-		} else if key_str.eq_ignore_ascii_case("Down") {
-			key_code == 317 || key_code == 383
-		} else if key_str.starts_with(['F', 'f'])
+		if let Some((_, codes)) = NAMED_KEYS.iter().find(|(name, _)| name.eq_ignore_ascii_case(key_str)) {
+			return codes.contains(&key_code);
+		}
+		if key_str.starts_with(['F', 'f'])
 			&& let Ok(num) = key_str[1..].parse::<i32>()
 			&& (1..=24).contains(&num)
 		{
-			key_code == 340 + num - 1
-		} else if key_str.len() == 1 {
-			let ch = key_str.chars().next().unwrap_or_default();
-			if ch.is_ascii_alphabetic() {
+			return key_code == WXK_F1 + num - 1;
+		}
+		let mut chars = key_str.chars();
+		match (chars.next(), chars.next()) {
+			(Some(ch), None) if ch.is_ascii_alphabetic() => {
 				let upper = ch.to_ascii_uppercase() as i32;
 				key_code == upper || key_code == upper + 32
-			} else if ch.is_ascii_digit() {
-				key_code == ch as i32 || key_code == (ch as i32 - 48 + 324)
-			} else {
-				match ch {
-					',' => key_code == 44 || key_code == 188,
-					'.' => key_code == 46 || key_code == 190 || key_code == 387,
-					'/' => key_code == 47 || key_code == 191 || key_code == 388,
-					'\\' => key_code == 92 || key_code == 220,
-					'[' => key_code == 91 || key_code == 219,
-					']' => key_code == 93 || key_code == 221,
-					'-' => key_code == 45 || key_code == 189 || key_code == 390,
-					'=' => key_code == 61 || key_code == 187,
-					';' => key_code == 59 || key_code == 186,
-					'\'' => key_code == 39 || key_code == 222,
-					'`' => key_code == 96 || key_code == 192,
-					_ => key_code == ch as i32,
-				}
 			}
-		} else {
-			false
+			(Some(ch), None) if ch.is_ascii_digit() => {
+				key_code == ch as i32 || key_code == ch as i32 - 48 + WXK_NUMPAD0
+			}
+			(Some(ch), None) => key_code == ch as i32,
+			_ => false,
 		}
 	}
 
@@ -412,7 +390,36 @@ mod tests {
 	fn a_key_matches_its_numpad_equivalent() {
 		let chord = KeyChord::new(false, false, false, ".");
 		assert!(chord.matches(46, false, false, false));
-		assert!(chord.matches(387, false, false, false));
+		assert!(chord.matches(391, false, false, false));
+		assert!(!chord.matches(387, false, false, false));
+	}
+
+	#[test]
+	fn a_bare_ctrl_press_is_not_ctrl_delete() {
+		let chord = KeyChord::new(true, false, false, "Delete");
+		assert!(!chord.matches(308, true, false, false));
+		assert!(chord.matches(127, true, false, false));
+		assert!(chord.matches(385, true, false, false));
+		assert_eq!(KeyChord::from_key_code(308, true, false, false), None);
+	}
+
+	#[test]
+	fn numpad_navigation_keys_match_their_own_keys() {
+		for (name, main, numpad) in [
+			("Home", 313, 375),
+			("Left", 314, 376),
+			("Up", 315, 377),
+			("Right", 316, 378),
+			("Down", 317, 379),
+			("PageUp", 366, 380),
+			("PageDown", 367, 381),
+			("End", 312, 382),
+		] {
+			let chord = KeyChord::new(false, false, false, name);
+			assert!(chord.matches(main, false, false, false), "{name}");
+			assert!(chord.matches(numpad, false, false, false), "{name}");
+			assert_eq!(KeyChord::from_key_code(numpad, false, false, false), Some(chord), "{name}");
+		}
 	}
 
 	#[test]

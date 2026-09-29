@@ -1,6 +1,6 @@
 [package]
 name = "key-chord"
-version = "0.2.1"
+version = "0.2.2"
 description = "Keyboard shortcut chords: parsing, formatting, and matching against wxWidgets key codes."
 license = "MIT"
 readme = "README.md"
