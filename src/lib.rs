@@ -133,6 +133,34 @@ impl KeyChord {
 		parts.join("+")
 	}
 
+	/// The chord as the user should read it, which differs from
+	/// [`to_shortcut_string`](KeyChord::to_shortcut_string) on macOS: the command modifier is Cmd,
+	/// Alt is Option, and physical Control is Control, in the order Mac menus list them. Elsewhere
+	/// both kinds of Ctrl read as Ctrl.
+	#[must_use]
+	pub fn to_display_string(&self) -> String {
+		let modifiers = if cfg!(target_os = "macos") {
+			[
+				(self.raw_ctrl, "Control"),
+				(self.alt, "Option"),
+				(self.shift, "Shift"),
+				(self.ctrl, "Cmd"),
+				(self.win, "Win"),
+			]
+		} else {
+			[
+				(self.raw_ctrl || self.ctrl, "Ctrl"),
+				(self.alt, "Alt"),
+				(self.shift, "Shift"),
+				(self.win, "Win"),
+				(false, ""),
+			]
+		};
+		let mut parts: Vec<&str> = modifiers.iter().filter(|(held, _)| *held).map(|(_, name)| *name).collect();
+		parts.push(&self.key);
+		parts.join("+")
+	}
+
 	/// Parses [`to_shortcut_string`](KeyChord::to_shortcut_string)'s output back.
 	///
 	/// Returns `None` for an empty string or the literal `"none"`, which is how a config file
@@ -419,5 +447,19 @@ mod tests {
 	#[test]
 	fn a_bare_modifier_press_captures_nothing() {
 		assert_eq!(KeyChord::from_key_code(306, false, false, true), None);
+	}
+
+	#[test]
+	#[cfg(not(target_os = "macos"))]
+	fn display_string_reads_both_ctrls_as_ctrl() {
+		assert_eq!(KeyChord::new(true, true, true, "k").to_display_string(), "Ctrl+Alt+Shift+K");
+		assert_eq!(KeyChord::new_raw_ctrl(true, false, false, "Space").to_display_string(), "Ctrl+Space");
+	}
+
+	#[test]
+	#[cfg(target_os = "macos")]
+	fn display_string_uses_mac_names_and_order() {
+		assert_eq!(KeyChord::new(true, true, true, "k").to_display_string(), "Option+Shift+Cmd+K");
+		assert_eq!(KeyChord::new_raw_ctrl(true, false, false, "Space").to_display_string(), "Control+Space");
 	}
 }
